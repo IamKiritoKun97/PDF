@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAMON TARIAO PDF Editor</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <!-- jsPDF for saving -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        body {
+            background-color: #525659; /* Edge PDF background dark gray */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden; /* Header fixed, body scrolls */
+        }
+
+        /* Toolbar Styles */
+        #toolbar {
+            background-color: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            height: 48px;
+            z-index: 50;
+        }
+
+        .tool-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 36px;
+            padding: 0 8px;
+            border-radius: 4px;
+            color: #212121;
+            transition: background-color 0.1s;
+            cursor: pointer;
+            border: 1px solid transparent;
+            font-size: 14px;
+        }
+
+        .tool-btn:hover {
+            background-color: #f0f0f0;
+        }
+
+        .tool-btn.active {
+            background-color: #e5f1fb; /* Edge selection blue */
+            color: #005a9e;
+        }
+
+        /* Color Picker Popups */
+        .color-swatch {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .color-swatch:hover {
+            transform: scale(1.1);
+            border-color: #ccc;
+        }
+        .color-swatch.selected {
+            border-color: #000;
+        }
+
+        /* Main Container */
+        #main-container {
+            height: calc(100vh - 48px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 0;
+        }
+
+        /* Page Wrapper */
+        .pdf-page-container {
+            position: relative;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            background: white;
+            transition: transform 0.2s;
+        }
+
+        .pdf-canvas {
+            display: block;
+        }
+
+        .annotation-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+            touch-action: none;
+        }
+
+        .text-input-overlay {
+            position: absolute;
+            background: transparent;
+            border: 1px dashed #005a9e;
+            padding: 4px;
+            min-width: 50px;
+            outline: none;
+            color: black;
+            font-family: sans-serif;
+            font-size: 16px;
+            line-height: 1.2;
+            overflow: hidden;
+            z-index: 100;
+        }
+
+        /* Scrollbar */
+        #main-container::-webkit-scrollbar {
+            width: 12px;
+        }
+        #main-container::-webkit-scrollbar-track {
+            background: #525659;
+        }
+        #main-container::-webkit-scrollbar-thumb {
+            background-color: #8c8c8c;
+            border-radius: 6px;
+            border: 3px solid #525659;
+        }
+
+        /* Drag Overlay */
+        #drag-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 90, 158, 0.9);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            font-weight: 600;
+        }
+
+        .dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 44px;
+            background: white;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border-radius: 4px;
+            padding: 12px;
+            z-index: 60;
+            width: 200px;
+        }
+        
+        .divider {
+            height: 24px;
+            width: 1px;
+            background-color: #d1d1d1;
+            margin: 0 8px;
+        }
+
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-radius: 50%;
+            border-top: 4px solid #005a9e;
+            width: 40px;
+            height: 40px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    </style>
+</head>
+<body id="drop-zone">
+
+    <!-- Drag Overlay -->
+    <div id="drag-overlay">
+        <div class="text-center">
+            <svg class="w-16 h-16 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+            Drop PDF here to open
+        </div>
+    </div>
+
+    <!-- Header Toolbar -->
+    <header id="toolbar" class="flex items-center px-4 select-none fixed top-0 w-full">
+        <!-- Branding Name -->
+        <div class="font-bold text-gray-700 mr-6 tracking-wide text-sm hidden md:block border-r pr-4 border-gray-300">RAMON TARIAO</div>
+
+        <!-- Left: File Ops -->
+        <div class="flex items-center gap-1">
+            <input type="file" id="file-input" accept="application/pdf" class="hidden">
+            <button onclick="document.getElementById('file-input').click()" class="tool-btn" title="Open File">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 22h14a2 2 0 0 0 2-2V7.5L14.5 2H6a2 2 0 0 0-2 2v4"/><path d="M14 2v6h6"/><path d="M3 15h6"/><path d="M6 12v6"/></svg>
+                <span class="ml-2 hidden sm:block">Open</span>
+            </button>
+            <button id="save-btn" class="tool-btn" title="Save PDF">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                <span class="ml-2 hidden sm:block">Save</span>
+            </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Center: Tools -->
+        <div class="flex items-center gap-1 relative">
+            
+            <!-- Text Tool -->
+            <button id="text-tool" class="tool-btn" title="Add Text">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg>
+                <span class="ml-2 hidden lg:block">Add Text</span>
+            </button>
+
+            <!-- Draw Tool + Dropdown -->
+            <div class="relative group">
+                <button id="draw-tool" class="tool-btn" title="Draw">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m12 19 7-7 3 3-7 7-3-3z"/><path d="m18 13-1.5-7.5L2 2l3.5 14.5L13 18l5-7z"/><path d="m2 2 7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+                    <span class="ml-2 hidden lg:block">Draw</span>
+                    <svg class="ml-1 w-3 h-3 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </button>
+                <div id="draw-menu" class="dropdown-menu">
+                    <p class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Ink Color</p>
+                    <div class="flex gap-2 mb-4">
+                        <div class="color-swatch selected" style="background: #000000;" onclick="setColor('draw', '#000000', this)"></div>
+                        <div class="color-swatch" style="background: #FF0000;" onclick="setColor('draw', '#FF0000', this)"></div>
+                        <div class="color-swatch" style="background: #005a9e;" onclick="setColor('draw', '#005a9e', this)"></div>
+                        <div class="color-swatch" style="background: #008000;" onclick="setColor('draw', '#008000', this)"></div>
+                    </div>
+                    <p class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Thickness</p>
+                    <input type="range" min="1" max="10" value="2" id="draw-width" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Highlight Tool + Dropdown -->
+            <div class="relative">
+                <button id="highlight-tool" class="tool-btn" title="Highlight">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+                    <span class="ml-2 hidden lg:block">Highlight</span>
+                    <svg class="ml-1 w-3 h-3 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/></svg>
+                </button>
+                <div id="highlight-menu" class="dropdown-menu">
+                    <p class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Highlight Color</p>
+                    <div class="flex gap-2 mb-4">
+                        <div class="color-swatch selected" style="background: #FFFF00;" onclick="setColor('highlight', '#FFFF00', this)"></div>
+                        <div class="color-swatch" style="background: #00FF00;" onclick="setColor('highlight', '#00FF00', this)"></div>
+                        <div class="color-swatch" style="background: #00FFFF;" onclick="setColor('highlight', '#00FFFF', this)"></div>
+                        <div class="color-swatch" style="background: #FF00FF;" onclick="setColor('highlight', '#FF00FF', this)"></div>
+                    </div>
+                    <p class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wide">Thickness</p>
+                    <input type="range" min="5" max="30" value="15" id="highlight-width" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Eraser -->
+            <button id="erase-tool" class="tool-btn" title="Eraser">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+                <span class="ml-2 hidden lg:block">Erase</span>
+            </button>
+            
+            <div class="divider"></div>
+
+             <!-- Clear Page -->
+             <button id="clear-page-btn" class="tool-btn text-red-600 hover:text-red-700 hover:bg-red-50" title="Clear All Annotations on Page">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                <span class="ml-2 hidden lg:block">Clear Page</span>
+            </button>
+
+        </div>
+
+        <div class="flex-grow"></div>
+        <div id="page-info" class="text-sm text-gray-500 mr-2"></div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-container">
+        
+        <!-- Welcome / Empty State -->
+        <div id="empty-state" class="flex flex-col items-center justify-center h-full text-gray-400">
+            <svg class="w-24 h-24 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            <h2 class="text-xl font-semibold mb-2">No PDF Open</h2>
+            <button onclick="document.getElementById('file-input').click()" class="bg-[#005a9e] text-white px-6 py-2 rounded shadow hover:bg-[#004a83] transition">Open PDF</button>
+            <p class="mt-4 text-sm">or drag and drop a file here</p>
+        </div>
+
+        <!-- Loader -->
+        <div id="loader" class="hidden flex flex-col items-center justify-center h-full">
+            <div class="loader mb-4"></div>
+            <p class="text-gray-500">Processing PDF...</p>
+        </div>
+
+        <!-- PDF Pages Container (Populated by JS) -->
+        <div id="pdf-wrapper" class="w-full flex flex-col items-center pb-20 hidden"></div>
+
+    </main>
+
+    <script>
+        // --- Application State ---
+        const state = {
+            pdfDoc: null,
+            fileData: null,
+            scale: 1.5,
+            currentTool: 'cursor', // cursor, draw, highlight, erase, text
+            colors: {
+                draw: '#000000',
+                highlight: '#FFFF00'
+            },
+            widths: {
+                draw: 2,
+                highlight: 15
+            },
+            isDrawing: false,
+            lastX: 0,
+            lastY: 0,
+            activePage: null // The page container DOM element currently being interacted with
+        };
+
+        // --- DOM Elements ---
+        const mainContainer = document.getElementById('main-container');
+        const pdfWrapper = document.getElementById('pdf-wrapper');
+        const emptyState = document.getElementById('empty-state');
+        const loader = document.getElementById('loader');
+        const fileInput = document.getElementById('file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const dragOverlay = document.getElementById('drag-overlay');
+        const pageInfo = document.getElementById('page-info');
+
+        // Tool Buttons
+        const tools = {
+            draw: document.getElementById('draw-tool'),
+            highlight: document.getElementById('highlight-tool'),
+            erase: document.getElementById('erase-tool'),
+            text: document.getElementById('text-tool')
+        };
+        const menus = {
+            draw: document.getElementById('draw-menu'),
+            highlight: document.getElementById('highlight-menu')
+        };
+
+        // --- Event Listeners: Toolbar ---
+
+        // Toggle Menus
+        tools.draw.addEventListener('click', (e) => {
+            if (e.target.closest('svg.ml-1')) { // Clicked arrow
+                e.stopPropagation();
+                toggleMenu('draw');
+            } else {
+                setTool('draw');
+                closeAllMenus();
+            }
+        });
+
+        tools.highlight.addEventListener('click', (e) => {
+             if (e.target.closest('svg.ml-1')) { // Clicked arrow
+                e.stopPropagation();
+                toggleMenu('highlight');
+            } else {
+                setTool('highlight');
+                closeAllMenus();
+            }
+        });
+
+        tools.erase.addEventListener('click', () => setTool('erase'));
+        tools.text.addEventListener('click', () => setTool('text'));
+
+        document.getElementById('clear-page-btn').addEventListener('click', clearCurrentPage);
+        document.getElementById('save-btn').addEventListener('click', savePDF);
+
+        // Inputs for thickness
+        document.getElementById('draw-width').addEventListener('input', (e) => state.widths.draw = parseInt(e.target.value));
+        document.getElementById('highlight-width').addEventListener('input', (e) => state.widths.highlight = parseInt(e.target.value));
+
+        // Click outside to close menus
+        window.addEventListener('click', (e) => {
+            if (!e.target.closest('.relative')) {
+                closeAllMenus();
+            }
+        });
+
+        // --- Event Listeners: File Handling ---
+
+        fileInput.addEventListener('change', handleFileSelect);
+
+        // Drag and Drop
+        window.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dragOverlay.style.display = 'flex';
+        });
+
+        window.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget === null) {
+                dragOverlay.style.display = 'none';
+            }
+        });
+
+        window.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dragOverlay.style.display = 'none';
+            if (e.dataTransfer.files.length > 0) {
+                const file = e.dataTransfer.files[0];
+                if (file.type === 'application/pdf') {
+                    loadFile(file);
+                } else {
+                    alert('Please drop a valid PDF file.');
+                }
+            }
+        });
+
+        // --- Core Functions ---
+
+        function toggleMenu(type) {
+            const menu = menus[type];
+            const isVisible = menu.style.display === 'block';
+            closeAllMenus();
+            if (!isVisible) {
+                menu.style.display = 'block';
+            }
+        }
+
+        function closeAllMenus() {
+            Object.values(menus).forEach(m => m.style.display = 'none');
+        }
+
+        function setColor(tool, color, element) {
+            state.colors[tool] = color;
+            // Update UI selection
+            const parent = element.parentElement;
+            parent.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('selected'));
+            element.classList.add('selected');
+        }
+
+        function setTool(toolName) {
+            state.currentTool = toolName;
+            
+            // UI Updates
+            Object.values(tools).forEach(btn => btn.classList.remove('active'));
+            if (tools[toolName]) tools[toolName].classList.add('active');
+
+            // Update cursors
+            const canvases = document.querySelectorAll('.annotation-canvas');
+            canvases.forEach(c => {
+                c.style.cursor = toolName === 'text' ? 'text' : 'crosshair';
+            });
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) loadFile(file);
+        }
+
+        async function loadFile(file) {
+            emptyState.style.display = 'none';
+            pdfWrapper.innerHTML = '';
+            pdfWrapper.classList.add('hidden');
+            loader.classList.remove('hidden');
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                state.fileData = e.target.result;
+                const loadingTask = pdfjsLib.getDocument({data: state.fileData});
+                try {
+                    state.pdfDoc = await loadingTask.promise;
+                    pageInfo.textContent = `${state.pdfDoc.numPages} Pages`;
+                    await renderPages();
+                } catch (error) {
+                    console.error(error);
+                    alert('Error loading PDF.');
+                    loader.classList.add('hidden');
+                    emptyState.style.display = 'flex';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        async function renderPages() {
+            loader.classList.add('hidden');
+            pdfWrapper.classList.remove('hidden');
+
+            for (let pageNum = 1; pageNum <= state.pdfDoc.numPages; pageNum++) {
+                const page = await state.pdfDoc.getPage(pageNum);
+                const viewport = page.getViewport({scale: state.scale});
+
+                // Container
+                const container = document.createElement('div');
+                container.className = 'pdf-page-container';
+                container.style.width = `${viewport.width}px`;
+                container.style.height = `${viewport.height}px`;
+                container.setAttribute('data-page-number', pageNum);
+
+                // PDF Render Canvas (Bottom Layer)
+                const canvas = document.createElement('canvas');
+                canvas.className = 'pdf-canvas';
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                const ctx = canvas.getContext('2d');
+                
+                // Annotation Canvas (Top Layer)
+                const annotationCanvas = document.createElement('canvas');
+                annotationCanvas.className = 'annotation-canvas';
+                annotationCanvas.width = viewport.width;
+                annotationCanvas.height = viewport.height;
+                
+                container.appendChild(canvas);
+                container.appendChild(annotationCanvas);
+                pdfWrapper.appendChild(container);
+
+                // Render PDF
+                const renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                await page.render(renderContext).promise;
+
+                // Setup Interaction
+                setupCanvasInteraction(annotationCanvas);
+            }
+        }
+
+        function setupCanvasInteraction(canvas) {
+            const ctx = canvas.getContext('2d');
+
+            const getPos = (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX || e.touches[0].clientX) - rect.left;
+                const y = (e.clientY || e.touches[0].clientY) - rect.top;
+                return {x, y};
+            };
+
+            const startDrawing = (e) => {
+                if (state.currentTool === 'cursor') return;
+                
+                // Text Tool logic
+                if (state.currentTool === 'text') {
+                    handleTextTool(e, canvas);
+                    return;
+                }
+
+                e.preventDefault();
+                state.isDrawing = true;
+                const {x, y} = getPos(e);
+                state.lastX = x;
+                state.lastY = y;
+                state.activePage = canvas;
+
+                // Dot for single click drawing
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                
+                if (state.currentTool === 'erase') {
+                    ctx.globalCompositeOperation = 'destination-out';
+                    ctx.lineWidth = 20;
+                } else if (state.currentTool === 'highlight') {
+                    ctx.globalCompositeOperation = 'multiply'; // Better blending for highlight
+                    ctx.strokeStyle = state.colors.highlight;
+                    ctx.lineWidth = state.widths.highlight;
+                    // Mock transparency by color choice, but multiply works best for highlight effect
+                    // If we want real transparency over black text we use simple alpha
+                    ctx.globalAlpha = 0.5;
+                    ctx.globalCompositeOperation = 'source-over'; // Switch back for simple alpha
+                } else {
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.strokeStyle = state.colors.draw;
+                    ctx.lineWidth = state.widths.draw;
+                    ctx.globalAlpha = 1.0;
+                }
+            };
+
+            const draw = (e) => {
+                if (!state.isDrawing) return;
+                e.preventDefault();
+                const {x, y} = getPos(e);
+
+                ctx.beginPath();
+                ctx.moveTo(state.lastX, state.lastY);
+                ctx.lineTo(x, y);
+                ctx.stroke();
+
+                state.lastX = x;
+                state.lastY = y;
+            };
+
+            const stopDrawing = () => {
+                state.isDrawing = false;
+                ctx.closePath();
+            };
+
+            // Mouse Events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+
+            // Touch Events
+            canvas.addEventListener('touchstart', startDrawing);
+            canvas.addEventListener('touchmove', draw);
+            canvas.addEventListener('touchend', stopDrawing);
+        }
+
+        function handleTextTool(e, canvas) {
+            const {x, y} = { // Get pos logic duplicated for brevity but ensuring rect is current
+                x: e.offsetX,
+                y: e.offsetY
+            };
+            
+            const input = document.createElement('div');
+            input.contentEditable = true;
+            input.className = 'text-input-overlay';
+            input.style.left = x + 'px';
+            input.style.top = y + 'px';
+            input.style.color = state.colors.draw; // Use draw color for text
+            
+            canvas.parentElement.appendChild(input);
+            input.focus();
+
+            // When user clicks away or hits enter (shift+enter for newline ok)
+            const finalize = () => {
+                if (!input.innerText.trim()) {
+                    input.remove();
+                    return;
+                }
+
+                const ctx = canvas.getContext('2d');
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.globalAlpha = 1.0;
+                ctx.font = "16px sans-serif";
+                ctx.fillStyle = state.colors.draw;
+                ctx.textBaseline = "top";
+                
+                // Draw text line by line
+                const lines = input.innerText.split('\n');
+                const lineHeight = 20; // Approx
+                lines.forEach((line, index) => {
+                    ctx.fillText(line, x + 4, y + 4 + (index * lineHeight));
+                });
+
+                input.remove();
+            };
+
+            input.addEventListener('blur', finalize);
+        }
+
+        function clearCurrentPage() {
+            // Find which page is most visible or active
+            // For simplicity, we clear all or the last touched. 
+            // Better: find visible page.
+            
+            const containers = document.querySelectorAll('.pdf-page-container');
+            let found = false;
+            
+            // Simple visibility check
+            containers.forEach(container => {
+                const rect = container.getBoundingClientRect();
+                if (rect.top >= 0 && rect.top < window.innerHeight / 2) {
+                    const canvas = container.querySelector('.annotation-canvas');
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    found = true;
+                }
+            });
+
+            if(!found && containers.length > 0) {
+                 // Fallback to first page if scrolled weirdly
+                const canvas = containers[0].querySelector('.annotation-canvas');
+                canvas.getContext('2d').clearRect(0,0, canvas.width, canvas.height);
+            }
+        }
+
+        async function savePDF() {
+            if (!state.pdfDoc) return;
+            
+            const saveBtn = document.getElementById('save-btn');
+            const originalText = saveBtn.innerHTML;
+            saveBtn.innerHTML = `<span class="loader" style="width:20px;height:20px;border-width:2px;"></span> Saving...`;
+            
+            // Small delay to allow UI update
+            await new Promise(r => setTimeout(r, 100));
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF();
+            
+            const pages = document.querySelectorAll('.pdf-page-container');
+            
+            for (let i = 0; i < pages.length; i++) {
+                const container = pages[i];
+                const pdfCanvas = container.querySelector('.pdf-canvas');
+                const annotationCanvas = container.querySelector('.annotation-canvas');
+                
+                const width = pdfCanvas.width;
+                const height = pdfCanvas.height;
+
+                // Create a composite canvas
+                const compositeCanvas = document.createElement('canvas');
+                compositeCanvas.width = width;
+                compositeCanvas.height = height;
+                const ctx = compositeCanvas.getContext('2d');
+
+                // Draw background PDF
+                ctx.drawImage(pdfCanvas, 0, 0);
+                // Draw annotations
+                ctx.drawImage(annotationCanvas, 0, 0);
+
+                // Convert to image
+                const imgData = compositeCanvas.toDataURL('image/jpeg', 0.95); // JPEG is smaller/faster than PNG
+
+                // Add to PDF
+                if (i > 0) pdf.addPage();
+                
+                // Calculate aspect ratio to fit A4 or keep original size?
+                // We keep pixel mapping to PDF points (1px = 0.75pt approx) or just fit page
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = (height * pdfWidth) / width;
+                
+                pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+            }
+
+            pdf.save('edited_document.pdf');
+            
+            saveBtn.innerHTML = originalText;
+        }
+
+    </script>
+</body>
+</html>
+
+
